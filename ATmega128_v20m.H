@@ -1,123 +1,409 @@
-/*
- * 똥4.c
- *
- * Created: 2025-05-22 오전 11:47:57
- * Author : WIN
- */ 
+/* -------------------------------------------------------------------------- */
+/*  ATmega128_v20m.H                                                                	 */
+/*  I/O Address Definition & User Function for ATmega128 V20 Target Board  */
+/* -------------------------------------------------------------------------- */
+#define LCD_DATABUS		*((volatile unsigned char *)0x2000) 	// LCD data output address,<ex:PORTD>
+#define LCD_CONTROL		*((volatile unsigned char *)0x2100) 	// LCD control signal output address,<ex:PORTE
 
+#define RTC_SECOND		*((unsigned char *)0x2200) 	// DS12C887 RTC
+#define RTC_SEC_ALM		*((unsigned char *)0x2201)
+#define RTC_MINUTE		*((unsigned char *)0x2202)
+#define RTC_MIN_ALM		*((unsigned char *)0x2203)
+#define RTC_HOUR		*((unsigned char *)0x2204)
+#define RTC_HOUR_ALM		*((unsigned char *)0x2205)
+#define RTC_WEEKDAY		*((unsigned char *)0x2206)
+#define RTC_DATE		*((unsigned char *)0x2207)
+#define RTC_MONTH		*((unsigned char *)0x2208)
+#define RTC_YEAR		*((unsigned char *)0x2209)
+#define RTC_A 			*((unsigned char *)0x220A)
+#define RTC_B			*((unsigned char *)0x220B)
+#define RTC_C			*((unsigned char *)0x220C)
+#define RTC_D			*((unsigned char *)0x220D)
+#define RTC_FLAG		*((unsigned char *)0x220E)   
+#define RTC_Value		*((unsigned int  *)0x220F)   
 
+#define PPI_PORTA		*((unsigned char *)0x2300) 	// 8255-1 address  
+#define PPI_PORTB		*((unsigned char *)0x2301)
+#define PPI_PORTC		*((unsigned char *)0x2302)
+#define PPI_CW			*((unsigned char *)0x2303)
 
-#include <avr/io.h>
-#include <avr/interrupt.h>
+void MCU_initialize(void)	/* initialize ATmege128 MCU */
+{ 
+     MCUCR = 0x80; 			// Enable external memory and I/O, Disable SLEEP mode
+     XMCRA = 0x44; 			// 0x1100 - 0x7FFF (1 wait), 0x8000 - 0xFFFF (0 wait)
+     XMCRB = 0x80; 			// Enable bus keeper. Use PC0-PC7 as high byte of address bus
 
-#include "ATmega128_v20m.H"
+     DDRB  = 0xF0;  		// PORTB7..4 = output, PORTB3..0 = Input
+     PORTB = 0x00;
 
-#define F_CPU 16000000UL
+//     DDRD  = 0x00;  		// PORTD = Input
+     DDRD  = 0xFF;  		// PORTD3..0 =Output, PORTD7..4 = Input
+     PORTD = 0x00;
 
-volatile uint16_t Echo_count = 0;
+//     DDRE  = 0x02;  		// PORTE1 = output, All other PORTs are Input 
+     DDRE  = 0x03;  		// PORTE1, 3 = output, All other PORTs are Input 
 
-// --- 초음파 인터럽트: 에코 타이머 기록 ---
-ISR(INT0_vect) {
-	Echo_count = TCNT1;
+     PORTE = 0x00;
+//     PORTE = 0xE0;			// Pull up the PORTE7..5,
+
+     DDRF  = 0x00;  		// PORTF = Input
+     PORTF = 0x00;             
+     
+     DDRG  = 0x1F;
+
+     LCD_CONTROL = 0x00;
+     LCD_DATABUS = 0x00;
 }
 
-// --- 초음파 거리 측정 함수 ---
-int UltraSonic(char ch) {
-	int range;
-	switch(ch) {
-		case 0:
-		PORTE |= 0x10; // TRIG HIGH (PORTE4)
-		EIMSK |= 0x01; // INT0 활성화
-		break;
-		default:
-		break;
-	}
+void Delay_us(unsigned int time_us)		/* time delay for us */
+{ 
+     register unsigned int i;
 
-	Delay_us(12);
-	PORTE &= ~0x10; // TRIG LOW
-
-	TCNT1 = 0x00;
-	EIFR = 0x00;
-	Delay_ms(50);
-	EIMSK = 0x00;
-
-	Echo_count -= 4400;
-	if (Echo_count < 180) Echo_count = 180;
-	if (Echo_count > 36000L) Echo_count = 36000L;
-	range = Echo_count / 116; // cm 변환
-	return range;
+     for(i = 0; i < time_us; i++) {     // 4 cycle +      
+        asm (" PUSH  R0 ");     		// 2 cycle +       
+        asm (" POP   R0 ");       		// 2 cycle +
+        asm (" PUSH  R0 ");       		// 2 cycle +
+        asm (" POP   R0 ");       		// 2 cycle +
+        asm (" PUSH  R0 ");       		// 2 cycle +
+        asm (" POP   R0 ");	     	// 2 cycle = 16 cycle = 1 us for 16MHz
+     }
 }
 
-// --- 서보 초기화 (Timer3, PORTE3 = OC3A) ---
-void init_servo() {
-	DDRE |= (1 << PORTE3);
-	TCCR3A = 0x82; // 비반전 모드, OCR3A
-	TCCR3B = 0x1A; // 분주 8, WGM = 고속 PWM, TOP = ICR3
-	ICR3 = 19999; // 20ms
-	OCR3A = 1500; // 90도
+void Delay_ms(unsigned int time_ms)    	/* time delay for ms */
+{ 
+     register unsigned int i;
+
+     for(i = 0; i < time_ms; i++) {
+        Delay_us(250);
+        Delay_us(250);
+        Delay_us(250);
+        Delay_us(250);
+     }
+}    
+
+void LCD_command(unsigned char command)	/* write a command(instruction) to text LCD */
+{
+     LCD_CONTROL = 0x00;			// E = 0, Rs = 0
+     LCD_CONTROL = 0x01;			// E = 1
+     LCD_DATABUS = command;		// output command
+     asm (" PUSH  R0 ");			// delay for about 250 ns
+     asm (" POP   R0 ");
+     LCD_CONTROL = 0x00;			// E = 0
+     Delay_us(50);
 }
 
-// --- 서보 각도 설정 (0~180도) ---
-void set_servo_angle(uint8_t angle) {
-	OCR3A = 500 + ((uint16_t)angle * 2000) / 180;
+void LCD_data(unsigned char data)		/* display a character on text LCD */
+{
+     LCD_CONTROL = 0x02;			// E = 0, Rs = 1
+     LCD_CONTROL = 0x03;			// E = 1
+     LCD_DATABUS = data;			// output data
+     asm (" PUSH  R0 ");			// delay for about 250 ns
+     asm (" POP   R0 ");
+     LCD_CONTROL = 0x02;			// E = 0
+     Delay_us(50);
 }
 
-// --- DC 모터 전진 (PORTD2, PORTD3) ---
-void motor_forward(void) {
-	PORTD |= (1 << PORTD2);
-	PORTD &= ~(1 << PORTD3);
+void LCD_string(char command, char *string) /* display a string on LCD */
+{
+     LCD_command(command);			// start position of string
+     while(*string != '\0') {			// display string
+        LCD_data(*string);
+        string++;
+     }
+}
+
+void LCD_initialize(void)			/* initialize text LCD module */
+{
+     LCD_CONTROL = 0x03;				// E = 1, Rs = 1 (dummy write)
+     LCD_CONTROL = 0x02;				// E = 0, Rs = 1
+     Delay_ms(2);
+
+     LCD_command(0x38);				// function set(8 bit, 2 line, 5x7 dot)
+     LCD_command(0x0C);				// display control(display ON, cursor OFF)
+     LCD_command(0x06);				// entry mode set(increment, not shift)
+     LCD_command(0x01);				// clear display
+     Delay_ms(2);
+}
+
+void LCD_1d1(float number)
+{
+     unsigned int i, j;
+
+     j=(int)(number*10. +0.5);
+     i = j / 10;
+     LCD_data(i + '0');
+     LCD_data('.');
+     i = j % 10;
+     LCD_data(i + '0');
+} 
+
+void LCD_2d(unsigned int number)
+{
+     unsigned int i;
+     i = number / 10;
+     if(i == 0) LCD_data(' ');
+     else LCD_data(i + '0');
+      
+     i = number % 10;
+     LCD_data(i + '0');
+} 
+
+void LCD_2hex(unsigned int number)
+{
+     unsigned int i;
+     
+	i = (number >> 4) & 0x0F;
+     if(i <= 9) LCD_data(i + '0');
+     else       LCD_data(i - 10 + 'A');
+     
+     i = number & 0x0F;
+     if(i <= 9) LCD_data(i + '0');
+     else       LCD_data(i - 10 + 'A');
+} 
+
+void LCD_2d1(float number)			/* display XX.X number on LCD */
+{ 
+     int i;
+
+ //    number = fabs(number) + 0.05;
+     i = (int)(number/10.);
+     LCD_data(i + '0');
+
+
+     i = (int)(number - i * 10);
+     LCD_data(i + '0');
+
+     LCD_data('.');
+
+     i = (int)((number - (int)number) * 10.);
+     LCD_data(i + '0');
+}   
+
+void LCD_1d2(unsigned int number)
+{
+     unsigned int i,flag;
+     flag = 0;
+     i = number / 100;
+     if(i == 0) LCD_data('0');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+
+     LCD_data('.');		/* display x.xx number on LCD */
+	      
+     number = number % 100;
+     i = number / 10; 
+     if((i == 0) && (flag == 0)) LCD_data('0');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+     
+     i = number % 10;
+     LCD_data(i + '0');
+}  
+
+void LCD_3d(unsigned int number)
+{
+     unsigned int i,flag;
+     flag = 0;
+     i = number / 100;
+     if(i == 0) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+
+//     LCD_data('.');		/* display x.xx number on LCD */
+	      
+     number = number % 100;
+     i = number / 10; 
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+     
+     i = number % 10;
+     LCD_data(i + '0');
+}  
+
+void LCD_4d(unsigned int number)
+{
+     unsigned int i,flag;
+     flag = 0;
+     i = number / 1000;
+     if(i == 0) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+      
+     number = number % 1000;
+     i = number / 100; 
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+     
+     number = number % 100;
+     i = number / 10;
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else LCD_data(i + '0');
+     
+     i = number % 10;
+     LCD_data(i + '0');
+}    
+
+void LCD_s4d(int number)
+{
+     unsigned int i, flag;
+     flag = 0;      
+     
+     if(number < 0) {
+     	number = number * (-1);
+     	LCD_data('-');
+     } else {
+     	if(number == 0) LCD_data(' ');
+     	else            LCD_data('+');
+     }
+     
+     i = number / 1000;
+     if(i == 0) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+      
+     number = number % 1000;
+     i = number / 100; 
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+     
+     number = number % 100;
+     i = number / 10;
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else LCD_data(i + '0');
+     
+     i = number % 10;
+     LCD_data(i + '0');  
+}  
+   
+
+void LCD_4hex(unsigned int number)
+{
+     unsigned int i;
+     
+     i = number >>12;
+     if(i <= 9) LCD_data(i + '0');
+     else       LCD_data(i - 10 + 'A');
+     
+     i = (number >> 8) & 0x000F;
+     if(i <= 9) LCD_data(i + '0');
+     else       LCD_data(i - 10 + 'A');
+     
+     i = (number >> 4) & 0x000F;
+     if(i <= 9) LCD_data(i + '0');
+     else       LCD_data(i - 10 + 'A');
+     
+     i = number & 0x000F;
+     if(i <= 9) LCD_data(i + '0');
+     else       LCD_data(i - 10 + 'A');
+}  
+
+void LCD_4d1(float number) 	/* xxxx.x */
+{
+     unsigned int i,j,flag;  
+     flag = 0;
+     
+     j = (int)(number*10. + 0.5);
+     i = j/10000; 
+     if(i == 0) LCD_data(' ');					/* 10^3 */
+     else {   LCD_data(i + '0');     
+              flag = 1;
+          }
+     
+     j = j % 10000;				
+     i = j / 1000;                       			/* 10^2 */
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }       
+     
+     j = j % 1000;				
+     i = j / 100;                       			/* 10^1 */
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }
+     
+     j = j % 100;				
+     i = j / 10;                       				/* 10^0 */
+     LCD_data(i + '0');
+
+     LCD_data('.');     
+     
+     i = j % 10;								/* 10^-1 */
+     LCD_data(i + '0');
+}   
+
+void LCD_6d(unsigned long number)
+{
+     unsigned int i,flag;  
+     
+     flag = 0; 
+     i = number / 100000;                              /* 10^5 */
+     if(i == 0) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          } 
+                     
+     number = number % 100000;                		/* 10^4 */
+     i = number / 10000;
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }      
+     
+     number = number % 10000;                		/* 10^3 */
+     i = number / 1000;
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }   
+          
+     number = number % 1000;                			/* 10^2 */
+     i = number / 100;
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }   
+          
+     number = number % 100;                			/* 10^1 */
+     i = number / 10;
+     if((i == 0) && (flag == 0)) LCD_data(' ');
+     else {   LCD_data(i + '0');
+              flag = 1;
+          }        
+          
+     i = number % 10;     						/* 10^0 */
+     LCD_data(i + '0');   
+}   
+
+void Beep(void)					/* beep for 50 ms */
+{ 
+  PORTG |= _BV(3);				// buzzer on
+  Delay_ms(50);					// delay 50 ms
+  PORTG &= ~_BV(3);				// buzzer off
 }
 
 
-// --- 메인 함수 ---
-int main(void) {
-	MCU_initialize(); // 기본 초기화
-	LCD_initialize(); // LCD 초기화
-	init_servo(); // 서보 초기화
 
-	LCD_string(0x80, "Smart Sorter");
-	LCD_string(0xC0, "Init Complete");
+unsigned char Key_input(void)			/* input key SW1 - SW4 */
+{ register unsigned char key;
 
-	// 타이머1: 초음파용
-	TCCR1A = 0x00;
-	TCCR1B = 0x02; // clk/8 → 0.5us 단위
-	TCNT1 = 0x0000;
-
-	// 외부 인터럽트 INT0: 하강 에지
-	EICRA = 0x0A;
-	EIMSK = 0x00;
-	sei(); // 전역 인터럽트 허용
-
-	// 포트 설정
-	DDRE |= (1 << PORTE4); // TRIG
-	DDRD |= (1 << PORTD2) | (1 << PORTD3); // 모터
-	DDRG |= (1 << PORTG3); // 부저
-	DDRB = 0xF0; // 디버깅용 LED
-	PORTB = 0x00;
-
-	motor_forward(); // 모터 시작
-
-	while (1) {
-		int distance = UltraSonic(0);
-
-		LCD_string(0x80, "US_Range: cm");
-		LCD_command(0x80 + 10);
-		LCD_4d(distance);
-
-		if (distance >= 11 && distance <= 350) {
-			PORTB = 0x80; // LED 표시
-			set_servo_angle(45); // 분류 위치1
-			} else if (distance >= 2 && distance <= 10) {
-			PORTB = 0x10; // 경고 표시
-			Beep(); // 부저
-			set_servo_angle(90); // 분류 위치2
-			Delay_ms(1500); // 잠시 정지
-			} else {
-			set_servo_angle(135); // 기본 위치
-			PORTB = 0x00;
-		}
-
-		Delay_ms(500);
-	}
-}
-
+  key = PINB & 0x0F;				// any key pressed ?
+  if(key == 0x0F) return key;				// if no key, check key off
+  while((PINB & 0x0F) != 0x0F) {
+  Delay_ms(1);
+  }
+  Delay_ms(50);
+  return key;
+  } 
