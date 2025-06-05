@@ -1,5 +1,3 @@
-
-
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
@@ -7,13 +5,27 @@
 
 #define F_CPU 16000000UL
 
-volatile uint16_t Echo_count = 0;
+volatile uint16_t echo_start = 0, Echo_count = 0;
+volatile uint8_t  echo_state = 0;          // 0:대기, 1:High 측정중
 
 // --- 초음파 인터럽트: 에코 타이머 기록 ---
-ISR(INT0_vect) {
-	Echo_count = TCNT1;
+ISR(INT0_vect)
+{
+    if(echo_state == 0) {                  // ① 상승 에지
+        echo_start = TCNT1;
+        /* 다음 인터럽트를 하강 에지로 변경 */
+        EICRA &= ~((1<<ISC01)|(1<<ISC00)); // CL
+        EICRA |=  (1<<ISC01);              // ISC01=1, ISC00=0 : FALL
+        echo_state = 1;
+    } 
+    else {                                 // ② 하강 에지
+        Echo_count = TCNT1 - echo_start;   // High 구간 길이
+        /* 다시 상승 에지 대기 */
+        EICRA |=  (1<<ISC00);              // ISC01=1, ISC00=1 : RISE
+        echo_state = 0;
+        EIMSK  &= ~(1<<INT0);              // 필요하면 여기서 중단
+    }
 }
-
 // --- 초음파 거리 측정 함수 ---
 int UltraSonic(char ch) {
 	int range;
@@ -29,11 +41,11 @@ int UltraSonic(char ch) {
 	Delay_us(12);
 	PORTE &= ~0x10; // TRIG LOW
 
-	TCNT1 = 0x00;
-	EIFR = 0x00;
-	Delay_ms(50);
-	EIMSK = 0x00;
-
+	TCNT1 = 0;
+	EIFR  |= (1<<INTF0);   // 플래그 클리어
+	EICRA |= (1<<ISC01)|(1<<ISC00); // RISING
+	EIMSK |= (1<<INT0);    // INT0 Enable
+	
 	Echo_count -= 4400;
 	if (Echo_count < 180) Echo_count = 180;
 	if (Echo_count > 36000L) Echo_count = 36000L;
@@ -85,8 +97,8 @@ int main(void) {
 	DDRE |= (1 << PORTE4); // TRIG
 	DDRD |= (1 << PORTD2) | (1 << PORTD3); // 모터
 	DDRG |= (1 << PORTG3); // 부저
-	DDRB = 0xF0; // 디버깅용 LED
-	PORTB = 0x00;
+	DDRB |= (1<<DDB4) | (1<<DDB7);   // LED 출력
+	PORTB  |= 0x0F;                    // PB0~PB3 Pull-up ON  (LED 비트는 아직 0)
 
 	motor_forward(); // 모터 시작
 
