@@ -41,10 +41,9 @@
 
 void MCU_initialize(void)    /* initialize ATmege128 MCU */
 {
-     MCUCR = 0x80;             // Enable external memory and I/O, Disable SLEEP mode.
-                               // 이 설정은 직접 GPIO LCD 제어에는 필수적이지 않지만, 기존 코드를 유지합니다.
-     XMCRA = 0x44;             // 외부 메모리 타이밍 설정 (현재 LCD 사용 방식과 무관)
-     XMCRB = 0x80;             // 외부 메모리 버스 키퍼 활성화 (현재 LCD 사용 방식과 무관)
+     MCUCR  = 0x00;      // SRE=0  → 외부 메모리 인터페이스 OFF
+     XMCRA  = 0x00;
+     XMCRB  = 0x00;
 
      // PORTB 설정: LED (PB7, PB4 출력), Key_input (PB3-0 입력)
      DDRB  = (1 << DDB7) | (1 << DDB4); // PB7, PB4를 출력으로 설정. PB3-0은 입력(0)으로 유지.
