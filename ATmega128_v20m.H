@@ -34,6 +34,11 @@
 #define RTC_FLAG        *((unsigned char *)0x220E)
 #define RTC_Value       *((unsigned int  *)0x220F)
 
+#define KEY_PULLUP   0x0F          // 항상 1 로 유지할 비트
+#define LED_OFF()    (PORTB = KEY_PULLUP)
+#define LED_GREEN()  (PORTB = KEY_PULLUP | (1<<PB7))
+#define LED_RED()    (PORTB = KEY_PULLUP | (1<<PB4))
+
 #define PPI_PORTA       *((unsigned char *)0x2300)     // 8255-1 address
 #define PPI_PORTB       *((unsigned char *)0x2301)
 #define PPI_PORTC       *((unsigned char *)0x2302)
